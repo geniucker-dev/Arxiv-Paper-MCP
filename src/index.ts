@@ -244,7 +244,7 @@ async function extractPdfText(pdfPath: string): Promise<string> {
 }
 
 // 工具函数：解析论文内容（优先 HTML，回退 PDF）
-async function parsePaperContent(input: string, paperInfo?: any): Promise<{content: string, source: 'html' | 'pdf'}> {
+async function parsePaperContent(input: string): Promise<{content: string, source: 'html' | 'pdf'}> {
   let tempPdfPath: string | null = null;
   
   try {
@@ -281,22 +281,8 @@ async function parsePaperContent(input: string, paperInfo?: any): Promise<{conte
     // 构建输出内容
     let outputContent = '';
 
-    if (paperInfo) {
-      outputContent += `=== 论文信息 ===\n`;
-      outputContent += `标题: ${paperInfo.title}\n`;
-      outputContent += `arXiv ID: ${arxivId}\n`;
-      outputContent += `发布日期: ${paperInfo.published}\n`;
-      outputContent += `内容来源: ${source.toUpperCase()}\n`;
 
-      if (paperInfo.authors && paperInfo.authors.length > 0) {
-        outputContent += `作者: ${paperInfo.authors.map((author: any) => author.name || author).join(', ')}\n`;
-      }
-
-      outputContent += `摘要: ${paperInfo.summary}\n`;
-      outputContent += `\n=== 论文内容 ===\n\n`;
-    } else {
-      outputContent += `=== 论文内容 (来源: ${source.toUpperCase()}) ===\n\n`;
-    }
+    outputContent += `=== 论文内容 (来源: ${source.toUpperCase()}) ===\n\n`;
 
     outputContent += paperText;
 
@@ -372,16 +358,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             input: {
               type: "string",
               description: "arXiv 论文URL或 arXiv ID"
-            },
-            paperInfo: {
-              type: "object",
-              description: "论文信息（可选，用于添加论文元数据）",
-              properties: {
-                title: { type: "string" },
-                summary: { type: "string" },
-                published: { type: "string" },
-                authors: { type: "array" }
-              }
             }
           },
           required: ["input"]
@@ -435,8 +411,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "parse_paper_content": {
-        const { input, paperInfo } = args as { input: string; paperInfo?: any };
-        const result = await parsePaperContent(input, paperInfo);
+        const { input } = args as { input: string };
+        const result = await parsePaperContent(input);
 
         return {
           content: [{
