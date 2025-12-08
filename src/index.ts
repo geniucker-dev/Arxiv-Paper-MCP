@@ -7,6 +7,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { ArXivClient } from '@agentic/arxiv';
+import ky from "ky"
 import axios from "axios";
 import * as fs from "fs";
 import * as path from "path";
@@ -15,7 +16,7 @@ import { tmpdir } from "os";
 import { JSDOM } from "jsdom";
 
 // 初始化 ArXiv 客户端
-const arxivClient = new ArXivClient({});
+const arxivClient = new ArXivClient({ ky: ky.extend({ timeout: 30_000 }) });
 
 // 创建 MCP 服务器
 const server = new Server(
