@@ -1,446 +1,332 @@
 #!/usr/bin/env node
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import { ArXivClient } from '@agentic/arxiv';
-import ky from "ky"
-import axios from "axios";
-import * as fs from "fs";
-import * as path from "path";
-import { PdfReader } from "pdfreader";
-import { tmpdir } from "os";
-import { JSDOM } from "jsdom";
+import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { AddressInfo } from "node:net";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createArxivMcpServer } from "./createServer.js";
+import { getConfiguredLogLevel, logger } from "./logger.js";
+import { loadRuntimeConfig, RuntimeConfig } from "./runtimeConfig.js";
 
-// 初始化 ArXiv 客户端
-const arxivClient = new ArXivClient({ ky: ky.extend({ timeout: 30_000 }) });
+type RuntimeInstance = {
+  baseUrl: string;
+  close: () => Promise<void>;
+};
 
-// 创建 MCP 服务器
-const server = new Server(
-  {
-    name: "arxiv-paper-mcp",
-    version: "1.1.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
+const CORS_ALLOW_METHODS = "GET, POST, OPTIONS";
+const CORS_ALLOW_HEADERS = "Content-Type, Accept, Mcp-Protocol-Version, Mcp-Session-Id, Authorization";
+const CORS_EXPOSE_HEADERS = "Content-Type, Mcp-Protocol-Version, Mcp-Session-Id";
 
-// 工具函数：搜索 arXiv 论文
-async function searchArxivPapers(query: string, maxResults: number = 5): Promise<{totalResults: number, papers: any[]}> {
-  try {
-    const results = await arxivClient.search({
-      start: 0,
-      searchQuery: {
-        include: [
-          { field: "all", value: query }
-        ]
-      },
-      maxResults: maxResults
-    });
-
-    const papers = results.entries.map(entry => {
-      const urlParts = entry.url.split('/');
-      const arxivId = urlParts[urlParts.length - 1];
-
-      return {
-        id: arxivId,
-        url: entry.url,
-        title: entry.title.replace(/\s+/g, ' ').trim(),
-        summary: entry.summary.replace(/\s+/g, ' ').trim(),
-        published: entry.published,
-        authors: entry.authors || []
-      };
-    });
-
+function getRequestSummary(payload: unknown): Record<string, unknown> {
+  if (Array.isArray(payload)) {
     return {
-      totalResults: results.totalResults,
-      papers: papers
+      batch: true,
+      size: payload.length,
+      methods: payload
+        .map((entry) => (typeof entry === "object" && entry !== null && "method" in entry ? entry.method : undefined))
+        .filter((method) => typeof method === "string"),
     };
-  } catch (error) {
-    console.error("搜索 arXiv 论文时出错:", error);
-    throw new Error(`搜索失败: ${error instanceof Error ? error.message : String(error)}`);
   }
+
+  if (typeof payload === "object" && payload !== null) {
+    const request = payload as { id?: unknown; method?: unknown };
+    return {
+      batch: false,
+      id: request.id,
+      method: request.method,
+    };
+  }
+
+  return { batch: false, payloadType: typeof payload };
 }
 
-// 工具函数：检查是否有 HTML 版本并获取内容
-async function getArxivHtmlContent(arxivId: string): Promise<string | null> {
-  try {
-    const cleanArxivId = arxivId.replace(/v\d+$/, '');
-    const htmlUrl = `https://arxiv.org/html/${cleanArxivId}`;
-    
-    console.log(`尝试获取 HTML 版本: ${htmlUrl}`);
-    
-    const response = await axios({
-      method: 'GET',
-      url: htmlUrl,
-      timeout: 20000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; ArXiv-Paper-MCP/1.0)'
-      }
-    });
+function writeJsonRpcError(
+  res: ServerResponse,
+  status: number,
+  code: number,
+  message: string,
+  headers: Record<string, string> = {}
+): void {
+  if (res.headersSent) {
+    return;
+  }
 
-    // 检查响应状态和内容类型
-    if (response.status === 200 && response.headers['content-type']?.includes('text/html')) {
-      const html = response.data;
-      
-      // 简单检查是否是有效的论文HTML（而不是错误页面）
-      if (html.includes('ltx_document') || html.includes('ltx_page_main') || html.includes('ltx_abstract')) {
-        console.log(`成功获取 HTML 版本: ${htmlUrl}`);
-        return html;
-      }
+  const payload = {
+    jsonrpc: "2.0",
+    error: {
+      code,
+      message,
+    },
+    id: null,
+  };
+
+  res.writeHead(status, {
+    "content-type": "application/json",
+    ...headers,
+  });
+  res.end(JSON.stringify(payload));
+}
+
+function getCorsHeaders(req: IncomingMessage): Record<string, string> {
+  const originHeader = req.headers.origin;
+  const allowOrigin = typeof originHeader === "string" && originHeader.length > 0 ? originHeader : "*";
+
+  return {
+    "access-control-allow-origin": allowOrigin,
+    "access-control-allow-methods": CORS_ALLOW_METHODS,
+    "access-control-allow-headers": CORS_ALLOW_HEADERS,
+    "access-control-expose-headers": CORS_EXPOSE_HEADERS,
+    vary: "Origin",
+  };
+}
+
+function writePreflightResponse(req: IncomingMessage, res: ServerResponse): void {
+  if (res.headersSent) {
+    return;
+  }
+
+  res.writeHead(204, {
+    ...getCorsHeaders(req),
+  });
+  res.end();
+}
+
+function writeNotFound(req: IncomingMessage, res: ServerResponse): void {
+  if (res.headersSent) {
+    return;
+  }
+
+  res.writeHead(404, {
+    "content-type": "text/plain; charset=utf-8",
+    ...getCorsHeaders(req),
+  });
+  res.end("Not Found");
+}
+
+function validatePostHeaders(req: IncomingMessage, res: ServerResponse): boolean {
+  const accept = req.headers.accept;
+  if (
+    typeof accept !== "string" ||
+    !accept.includes("application/json") ||
+    !accept.includes("text/event-stream")
+  ) {
+    writeJsonRpcError(
+      res,
+      406,
+      -32000,
+      "Not Acceptable: Client must accept both application/json and text/event-stream",
+      getCorsHeaders(req)
+    );
+    return false;
+  }
+
+  const contentType = req.headers["content-type"];
+  if (typeof contentType !== "string" || !contentType.includes("application/json")) {
+    writeJsonRpcError(
+      res,
+      415,
+      -32000,
+      "Unsupported Media Type: Content-Type must be application/json",
+      getCorsHeaders(req)
+    );
+    return false;
+  }
+
+  return true;
+}
+
+function attachResponseCleanup(
+  req: IncomingMessage,
+  res: ServerResponse,
+  transport: StreamableHTTPServerTransport,
+  server: ReturnType<typeof createArxivMcpServer>
+): void {
+  let cleanedUp = false;
+
+  const cleanup = async (): Promise<void> => {
+    if (cleanedUp) {
+      return;
     }
-    
-    console.log(`HTML 版本不可用或无效: ${htmlUrl}`);
-    return null;
-  } catch (error) {
-    console.log(`HTML 版本获取失败，将使用 PDF: ${error instanceof Error ? error.message : String(error)}`);
-    return null;
-  }
+
+    cleanedUp = true;
+    await Promise.allSettled([transport.close(), server.close()]);
+  };
+
+  const cleanupLater = (): void => {
+    void cleanup();
+  };
+
+  req.once("close", cleanupLater);
+  res.once("close", cleanupLater);
+  res.once("finish", cleanupLater);
 }
 
-// 工具函数：从 HTML 中提取文本内容
-function extractTextFromHtml(html: string): string {
-  try {
-    const dom = new JSDOM(html);
-    const document = dom.window.document;
-    
-    // 移除脚本和样式标签
-    const scripts = document.querySelectorAll('script, style');
-    scripts.forEach(el => el.remove());
-    
-    // 获取主要内容区域
-    let mainContent = document.querySelector('.ltx_page_main') || 
-                     document.querySelector('.ltx_document') || 
-                     document.querySelector('body');
-    
-    if (!mainContent) {
-      throw new Error('无法找到主要内容区域');
-    }
-    
-    // 提取文本内容
-    let text = mainContent.textContent || '';
-    
-    // 清理文本：移除多余的空白字符
-    text = text.replace(/\s+/g, ' ').trim();
-    
-    if (text.length < 100) {
-      throw new Error('HTML 文本内容过少');
-    }
-    
-    return text;
-  } catch (error) {
-    console.error("HTML 文本提取失败:", error);
-    throw new Error(`HTML 解析失败: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-// 工具函数：获取 AI 领域最新论文
-async function getRecentAIPapers(): Promise<string> {
-  try {
-    const url = 'https://arxiv.org/list/cs.AI/recent';
-    console.log(`正在获取 AI 领域最新论文: ${url}`);
+async function parseRequestJson(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
 
-    const response = await axios({
-      method: 'GET',
-      url: url,
-      timeout: 30000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; ArXiv-Paper-MCP/1.0)'
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+
+  const rawBody = Buffer.concat(chunks).toString("utf8");
+  return JSON.parse(rawBody);
+}
+
+export async function startServerRuntime(config: Partial<RuntimeConfig> = {}): Promise<RuntimeInstance> {
+  const resolvedConfig = {
+    ...loadRuntimeConfig(),
+    ...config,
+  };
+
+  const handleMcpRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const startedAt = Date.now();
+
+    if (req.method !== "POST") {
+      if (req.method === "OPTIONS") {
+        logger.debug("Handled MCP CORS preflight request", {
+          path: req.url,
+          origin: req.headers.origin,
+        });
+        writePreflightResponse(req, res);
+        return;
       }
-    });
 
-    return response.data;
-  } catch (error) {
-    console.error("获取最新 AI 论文时出错:", error);
-    throw new Error(`获取最新论文失败: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-// 工具函数：获取 arXiv PDF 下载链接
-function getArxivPdfUrl(input: string): string {
-  try {
-    let arxivId: string;
-    let pdfUrl: string;
-
-    if (input.startsWith('http://') || input.startsWith('https://')) {
-      const urlParts = input.split('/');
-      arxivId = urlParts[urlParts.length - 1];
-      pdfUrl = input.replace('/abs/', '/pdf/') + '.pdf';
-    } else {
-      arxivId = input;
-      pdfUrl = `http://arxiv.org/pdf/${arxivId}.pdf`;
-    }
-
-    return pdfUrl;
-  } catch (error) {
-    console.error("获取 PDF 链接时出错:", error);
-    throw new Error(`获取PDF链接失败: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-// 工具函数：下载临时 PDF 文件
-async function downloadTempPdf(pdfUrl: string): Promise<string> {
-  try {
-    console.log(`正在下载临时 PDF: ${pdfUrl}`);
-
-    const response = await axios({
-      method: 'GET',
-      url: pdfUrl,
-      responseType: 'stream',
-      timeout: 30000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; ArXiv-Paper-MCP/1.0)'
-      }
-    });
-
-    // 创建临时文件路径
-    const tempPath = path.join(tmpdir(), `arxiv_temp_${Date.now()}.pdf`);
-    const writer = fs.createWriteStream(tempPath);
-    response.data.pipe(writer);
-
-    return new Promise<string>((resolve, reject) => {
-      writer.on('finish', () => {
-        console.log(`临时 PDF 下载完成: ${tempPath}`);
-        resolve(tempPath);
+      logger.warn("Rejected non-POST MCP request", {
+        method: req.method,
+        path: req.url,
       });
-      writer.on('error', (error) => {
-        console.error(`临时 PDF 下载失败: ${error}`);
-        if (fs.existsSync(tempPath)) {
-          fs.unlinkSync(tempPath);
-        }
-        reject(error);
+      writeJsonRpcError(res, 405, -32000, "Method not allowed.", {
+        allow: "POST, OPTIONS",
+        ...getCorsHeaders(req),
       });
-    });
-  } catch (error) {
-    console.error("下载临时 PDF 时出错:", error);
-    throw new Error(`下载失败: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
+      return;
+    }
 
-// 工具函数：提取 PDF 文本内容
-async function extractPdfText(pdfPath: string): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const texts: string[] = [];
-    new PdfReader().parseFileItems(pdfPath, (err, item) => {
-      if (err) {
-        console.error("PDF 解析失败:", err);
-        reject(new Error("PDF 解析失败: " + err));
-      } else if (!item) {
-        // 解析结束，拼成一段文本
-        let text = texts.join(' ').replace(/\s+/g, ' ').trim();
-        if (text.length < 100) {
-          reject(new Error("PDF 文本提取失败或内容过少"));
-        } else {
-          resolve(text);
-        }
-      } else if (item.text) {
-        texts.push(item.text);
+    if (!validatePostHeaders(req, res)) {
+      return;
+    }
+
+    let parsedBody: unknown;
+    try {
+      parsedBody = await parseRequestJson(req);
+    } catch {
+      logger.warn("Rejected malformed JSON payload", {
+        method: req.method,
+        path: req.url,
+      });
+      writeJsonRpcError(res, 400, -32700, "Parse error: Invalid JSON", getCorsHeaders(req));
+      return;
+    }
+
+    logger.info("Accepted MCP request", {
+      method: req.method,
+      path: req.url,
+      ...getRequestSummary(parsedBody),
+    });
+
+    const corsHeaders = getCorsHeaders(req);
+    for (const [headerName, headerValue] of Object.entries(corsHeaders)) {
+      res.setHeader(headerName, headerValue);
+    }
+
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    const server = createArxivMcpServer();
+    attachResponseCleanup(req, res, transport, server);
+
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req, res, parsedBody);
+      logger.info("Completed MCP request", {
+        method: req.method,
+        path: req.url,
+        statusCode: res.statusCode,
+        durationMs: Date.now() - startedAt,
+        ...getRequestSummary(parsedBody),
+      });
+    } catch (error) {
+      logger.error("Failed to handle MCP request", {
+        method: req.method,
+        path: req.url,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+        ...getRequestSummary(parsedBody),
+      });
+      if (!res.headersSent) {
+        writeJsonRpcError(res, 500, -32603, "Internal server error", getCorsHeaders(req));
       }
+    }
+  };
+
+  const httpServer = createServer(async (req, res) => {
+    const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    if (requestUrl.pathname !== resolvedConfig.path) {
+      logger.warn("Rejected request for unknown path", {
+        method: req.method,
+        path: requestUrl.pathname,
+      });
+      writeNotFound(req, res);
+      return;
+    }
+
+    await handleMcpRequest(req, res);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once("error", reject);
+    httpServer.listen(resolvedConfig.port, resolvedConfig.host, () => {
+      httpServer.off("error", reject);
+      resolve();
     });
   });
-}
 
-// 工具函数：解析论文内容（优先 HTML，回退 PDF）
-async function parsePaperContent(input: string): Promise<{content: string, source: 'html' | 'pdf'}> {
-  let tempPdfPath: string | null = null;
-  
-  try {
-    // 获取 arXiv ID
-    let arxivId: string;
-    if (input.startsWith('http://') || input.startsWith('https://')) {
-      const urlParts = input.split('/');
-      arxivId = urlParts[urlParts.length - 1];
-    } else {
-      arxivId = input;
-    }
-    
-    // 首先尝试获取 HTML 版本
-    console.log("尝试获取 HTML 版本...");
-    const htmlContent = await getArxivHtmlContent(arxivId);
-    
-    let paperText: string;
-    let source: 'html' | 'pdf';
-    
-    if (htmlContent) {
-      // 使用 HTML 版本
-      console.log("使用 HTML 版本解析内容");
-      paperText = extractTextFromHtml(htmlContent);
-      source = 'html';
-    } else {
-      // 回退到 PDF 版本
-      console.log("HTML 版本不可用，回退到 PDF 版本");
-      const pdfUrl = getArxivPdfUrl(input);
-      tempPdfPath = await downloadTempPdf(pdfUrl);
-      paperText = await extractPdfText(tempPdfPath);
-      source = 'pdf';
-    }
-    
-    // 构建输出内容
-    let outputContent = '';
-
-
-    outputContent += `=== 论文内容 (来源: ${source.toUpperCase()}) ===\n\n`;
-
-    outputContent += paperText;
-
-    return { content: outputContent, source };
-  } catch (error) {
-    console.error("解析论文内容时出错:", error);
-    throw new Error(`论文内容解析失败: ${error instanceof Error ? error.message : String(error)}`);
-  } finally {
-    // 清理临时 PDF 文件
-    if (tempPdfPath && fs.existsSync(tempPdfPath)) {
-      try {
-        fs.unlinkSync(tempPdfPath);
-        console.log(`临时文件已删除: ${tempPdfPath}`);
-      } catch (cleanupError) {
-        console.warn(`清理临时文件失败: ${cleanupError}`);
-      }
-    }
+  const address = httpServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to resolve HTTP server address");
   }
-}
 
-// 注册工具列表处理器
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "search_arxiv",
-        description: "搜索 arXiv 论文",
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description: "搜索英文关键词"
-            },
-            maxResults: {
-              type: "number",
-              description: "最大结果数量",
-              default: 5
-            }
-          },
-          required: ["query"]
+  const baseUrl = `http://${resolvedConfig.host}:${(address as AddressInfo).port}`;
+
+  const close = async (): Promise<void> => {
+    logger.info("Shutting down MCP Streamable HTTP server", {
+      baseUrl,
+      path: resolvedConfig.path,
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      httpServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
         }
-      },
-      {
-        name: "get_recent_ai_papers",
-        description: "获取 arXiv AI 领域最新论文（cs.AI/recent）",
-        inputSchema: {
-          type: "object",
-          properties: {},
-          required: []
-        }
-      },
-      {
-        name: "get_arxiv_pdf_url",
-        description: "获取 arXiv PDF 下载链接",
-        inputSchema: {
-          type: "object",
-          properties: {
-            input: {
-              type: "string",
-              description: "arXiv 论文URL（如：http://arxiv.org/abs/2403.15137v1）或 arXiv ID（如：2403.15137v1）"
-            }
-          },
-          required: ["input"]
-        }
-      },
-      {
-        name: "parse_paper_content",
-        description: "解析论文内容（优先使用 HTML 版本，回退到 PDF）",
-        inputSchema: {
-          type: "object",
-          properties: {
-            input: {
-              type: "string",
-              description: "arXiv 论文URL或 arXiv ID"
-            }
-          },
-          required: ["input"]
-        }
-      }
-    ]
+
+        resolve();
+      });
+    });
   };
-});
 
-// 注册工具调用处理器
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
+  logger.info("MCP Streamable HTTP server listening", {
+    endpoint: `${baseUrl}${resolvedConfig.path}`,
+    host: resolvedConfig.host,
+    port: address.port,
+    path: resolvedConfig.path,
+    logLevel: getConfiguredLogLevel(),
+  });
 
-  try {
-    switch (name) {
-      case "search_arxiv": {
-        const { query, maxResults = 5 } = args as { query: string; maxResults?: number };
-        const results = await searchArxivPapers(query, maxResults);
+  return {
+    baseUrl,
+    close,
+  };
+}
 
-        return {
-          content: [{
-            type: "text",
-            text: `找到 ${results.papers.length} 篇相关论文（总计 ${results.totalResults} 篇）：\n\n${results.papers.map((paper, index) =>
-              `${index + 1}. **${paper.title}**\n   ID: ${paper.id}\n   发布日期: ${paper.published}\n   作者: ${paper.authors.map((author: any) => author.name || author).join(', ')}\n   摘要: ${paper.summary.substring(0, 300)}...\n   URL: ${paper.url}\n`
-            ).join('\n')}`
-          }]
-        };
-      }
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const runtime = await startServerRuntime();
 
-      case "get_recent_ai_papers": {
-        const htmlContent = await getRecentAIPapers();
+  const shutdown = async () => {
+    await runtime.close();
+    process.exit(0);
+  };
 
-        return {
-          content: [{
-            type: "text",
-            text: htmlContent
-          }]
-        };
-      }
-
-      case "get_arxiv_pdf_url": {
-        const { input } = args as { input: string };
-        const pdfUrl = getArxivPdfUrl(input);
-
-        return {
-          content: [{
-            type: "text",
-            text: `PDF 下载链接: ${pdfUrl}`
-          }]
-        };
-      }
-
-      case "parse_paper_content": {
-        const { input } = args as { input: string };
-        const result = await parsePaperContent(input);
-
-        return {
-          content: [{
-            type: "text",
-            text: result.content
-          }]
-        };
-      }
-
-      default:
-        throw new Error(`Unknown tool: ${name}`);
-    }
-  } catch (error) {
-    return {
-      content: [{
-        type: "text",
-        text: `工具执行失败: ${error instanceof Error ? error.message : String(error)}`
-      }],
-      isError: true
-    };
-  }
-});
-
-// 启动服务器
-console.log("启动 ArXiv Paper MCP Server...");
-
-const transport = new StdioServerTransport();
-await server.connect(transport);
-
-console.log("🚀 ArXiv Paper MCP Server 已启动，等待连接...");
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
