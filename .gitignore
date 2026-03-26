@@ -131,3 +131,5 @@ DATA_DIR/
 
 # Test files
 test-data/
+
+.sisyphus/
