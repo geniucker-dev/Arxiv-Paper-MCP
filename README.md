@@ -9,45 +9,131 @@
 * 📄 **论文内容解析**：智能解析论文内容，优先使用 HTML 版本，回退到 PDF
 * 🆕 **AI领域最新论文**：获取 arXiv AI 领域今日最新更新论文列表
 
-## 安装使用
+## 本地运行
 
-### NPX 方式（推荐）
+本项目按**本地 Node.js 服务**方式运行，不按 npm 包发布使用。
+
+### 环境要求
+
+- Node.js >= 18
+- npm
+
+### 安装依赖
 
 ```bash
-npx @langgpt/arxiv-paper-mcp
+npm install
 ```
 
-### 全局安装
+### 启动服务
 
 ```bash
-npm install -g @langgpt/arxiv-paper-mcp
-arxiv-paper-mcp
+npm start
 ```
 
-## MCP 客户端配置
+可通过环境变量控制控制台日志等级：
 
-### Claude Desktop 配置
+```bash
+MCP_LOG_LEVEL=debug npm start
+```
 
-在 Claude Desktop 的配置文件中添加：
+支持的等级：`debug`、`info`、`warn`、`error`，默认是 `info`。
 
-```json
-{
-  "mcpServers": {
-    "arxiv-paper-mcp": {
-      "command": "npx",
-      "args": ["-y", "@langgpt/arxiv-paper-mcp@latest"]
+启动后默认监听：
+
+```text
+http://127.0.0.1:3000/mcp
+```
+
+### 开发模式
+
+```bash
+# TypeScript 监听编译
+npm run dev
+
+# 另开一个终端运行编译后的服务
+npm start
+```
+
+## Streamable HTTP 运行方式
+
+本项目默认使用 **MCP Streamable HTTP** 作为运行传输层（不再使用 stdio 启动运行时）。
+
+启动后提供单一 MCP 端点：
+
+```text
+http://<MCP_HOST>:<MCP_PORT><MCP_PATH>
+```
+
+默认值：
+
+- `MCP_HOST=127.0.0.1`
+- `MCP_PORT=3000`
+- `MCP_PATH=/mcp`
+
+示例：
+
+```bash
+# 默认监听 http://127.0.0.1:3000/mcp
+npm start
+
+# 自定义地址
+MCP_HOST=0.0.0.0 MCP_PORT=8080 MCP_PATH=/mcp npm start
+```
+
+### 构建与测试
+
+```bash
+# 构建
+npm run build
+
+# 运行测试（会先 build）
+npm test
+```
+
+## MCP 调用方式
+
+服务使用单一 MCP 端点：
+
+```text
+POST /mcp
+```
+
+请求要求：
+
+- `Content-Type: application/json`
+- `Accept: application/json, text/event-stream`
+- 服务是**无状态**的，不使用 `MCP-Session-Id`
+- 已内置 `CORS` 和 `OPTIONS` 预检响应，便于 LobeHub 这类浏览器/远程客户端接入
+
+一个最小的 `initialize` 示例：
+
+```bash
+curl -X POST http://127.0.0.1:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {
+        "name": "local-client",
+        "version": "0.0.1"
+      }
     }
-  }
-}
+  }'
 ```
 
-配置文件位置：
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+初始化之后，可以继续对同一端点发送 `notifications/initialized`、`tools/list`、`tools/call` 等 JSON-RPC 请求。
 
-### 其他 MCP 客户端
+协议说明：
 
-对于其他支持 MCP 的客户端，请参考其文档配置 stdio 传输方式。
+- 使用单一 MCP 端点路径
+- `POST` 为必需方法（用于 initialize 与后续 JSON-RPC 请求）
+- 服务为无状态实现：不返回也不要求 `MCP-Session-Id`
+- `GET` 在当前实现中不启用，将返回不支持行为
 
 ## 可用工具与参数
 
@@ -69,7 +155,6 @@ arxiv-paper-mcp
 * **工具名**: `parse_paper_content`
 * **参数**:
   * `input`：arXiv 论文 URL 或 arXiv ID
-  * `paperInfo`：论文元信息（可选，用于添加论文元数据）
 
 ### 4. 获取AI领域最新论文
 
@@ -114,8 +199,12 @@ npm start
 ```
 arxiv-paper-mcp/
 ├── src/
-│   └── index.ts          # 主服务器文件
+│   ├── createServer.ts   # MCP 工具/业务逻辑工厂
+│   ├── index.ts          # Streamable HTTP 运行时入口
+│   ├── runtimeConfig.ts  # MCP_HOST/MCP_PORT/MCP_PATH 配置解析
+│   └── httpTestHarness.ts
 ├── build/                # 编译输出目录
+├── test/                 # 传输与运行时测试
 ├── package.json          # 项目配置
 ├── tsconfig.json         # TypeScript 配置
 ├── README.md             # 项目说明
@@ -147,9 +236,10 @@ arxiv-paper-mcp/
 
 ### 日志调试
 
-启用详细日志：
+如需本地查看日志，可直接运行：
+
 ```bash
-DEBUG=arxiv-paper-mcp npx @langgpt/arxiv-paper-mcp
+npm start
 ```
 
 ## 贡献指南
