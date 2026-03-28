@@ -158,17 +158,21 @@ async function getRecentAIPapers(): Promise<string> {
 }
 
 // 工具函数：获取 arXiv PDF 下载链接
+function extractArxivId(input: string): string {
+  if (!input.startsWith("http://") && !input.startsWith("https://")) {
+    return input.replace(/\.pdf$/i, "");
+  }
+
+  const parsedUrl = new URL(input);
+  const pathSegments = parsedUrl.pathname.split("/").filter(Boolean);
+  const lastSegment = pathSegments[pathSegments.length - 1] ?? input;
+
+  return lastSegment.replace(/\.pdf$/i, "");
+}
+
 function getArxivPdfUrl(input: string): string {
   try {
-    let pdfUrl: string;
-
-    if (input.startsWith("http://") || input.startsWith("https://")) {
-      pdfUrl = input.replace("/abs/", "/pdf/") + ".pdf";
-    } else {
-      pdfUrl = `http://arxiv.org/pdf/${input}.pdf`;
-    }
-
-    return pdfUrl;
+    return `https://arxiv.org/pdf/${extractArxivId(input)}.pdf`;
   } catch (error) {
     logger.error("Failed to build arXiv PDF URL", {
       input,
@@ -255,7 +259,7 @@ async function parsePaperContent(input: string): Promise<{ content: string; sour
 
   try {
     // 获取 arXiv ID
-    const arxivId = (input.startsWith("http://") || input.startsWith("https://") ? input.split("/").pop() : input) ?? input;
+    const arxivId = extractArxivId(input);
 
     // 首先尝试获取 HTML 版本
     logger.debug("Attempting to parse paper from HTML version", { input, arxivId });
@@ -309,8 +313,8 @@ export function createArxivMcpServer(): Server {
   // 创建 MCP 服务器
   const server = new Server(
     {
-      name: "arxiv-paper-mcp",
-      version: "1.1.0",
+      name: "arxiv-paper-mcp-http",
+      version: "1.2.1",
     },
     {
       capabilities: {

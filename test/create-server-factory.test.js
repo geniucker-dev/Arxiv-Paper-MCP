@@ -109,7 +109,23 @@ test("factory keeps call handlers wired with existing success and error envelope
 
     assert.equal(success.isError ?? false, false);
     assert.equal(success.content[0]?.type, "text");
-    assert.match(success.content[0]?.text ?? "", /PDF 下载链接:\s*http:\/\/arxiv\.org\/pdf\/2403\.15137v1\.pdf/);
+    assert.match(success.content[0]?.text ?? "", /PDF 下载链接:\s*https:\/\/arxiv\.org\/pdf\/2403\.15137v1\.pdf/);
+
+    const absUrlSuccess = await client.callTool({
+      name: "get_arxiv_pdf_url",
+      arguments: { input: "https://arxiv.org/abs/2403.15137v1" },
+    });
+
+    assert.equal(absUrlSuccess.isError ?? false, false);
+    assert.match(absUrlSuccess.content[0]?.text ?? "", /PDF 下载链接:\s*https:\/\/arxiv\.org\/pdf\/2403\.15137v1\.pdf/);
+
+    const pdfUrlSuccess = await client.callTool({
+      name: "get_arxiv_pdf_url",
+      arguments: { input: "https://arxiv.org/pdf/2403.15137v1.pdf" },
+    });
+
+    assert.equal(pdfUrlSuccess.isError ?? false, false);
+    assert.match(pdfUrlSuccess.content[0]?.text ?? "", /PDF 下载链接:\s*https:\/\/arxiv\.org\/pdf\/2403\.15137v1\.pdf/);
 
     const failure = await client.callTool({
       name: "unknown_tool_name",
