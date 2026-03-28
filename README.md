@@ -1,4 +1,4 @@
-# ArXiv Paper MCP
+# ArXiv Paper MCP HTTP
 
 一个基于 arXiv 的论文检索与内容解析工具。支持 Model Context Protocol (MCP) 标准，提供论文搜索、PDF链接获取和内容解析功能。
 
@@ -27,12 +27,14 @@ npm install
 ### 启动服务
 
 ```bash
+npm run build
 npm start
 ```
 
 可通过环境变量控制控制台日志等级：
 
 ```bash
+npm run build
 MCP_LOG_LEVEL=debug npm start
 ```
 
@@ -51,8 +53,20 @@ http://127.0.0.1:3000/mcp
 npm run dev
 
 # 另开一个终端运行编译后的服务
+npm run build
 npm start
 ```
+
+### 环境变量
+
+服务支持以下环境变量：
+
+- `MCP_HOST`：监听地址，默认 `127.0.0.1`
+- `MCP_PORT`：监听端口，默认 `3000`
+- `MCP_PATH`：MCP HTTP 路径，默认 `/mcp`
+- `MCP_LOG_LEVEL`：日志等级，默认 `info`
+
+> 如果部署在 Docker 或服务器容器环境中，通常应设置 `MCP_HOST=0.0.0.0`。
 
 ## Streamable HTTP 运行方式
 
@@ -90,6 +104,97 @@ npm run build
 npm test
 ```
 
+## 部署
+
+### 部署前检查
+
+在部署到服务器前，建议至少确认以下事项：
+
+1. 能访问外网 `arxiv.org`
+2. 运行环境有可写临时目录（PDF fallback 会用到）
+3. 已执行：
+
+```bash
+npm test
+npm run build
+```
+
+### 作为 Node.js 服务部署
+
+```bash
+npm install
+npm run build
+MCP_HOST=0.0.0.0 MCP_PORT=3000 MCP_PATH=/mcp MCP_LOG_LEVEL=info npm start
+```
+
+启动后：
+
+- MCP endpoint: `http://<host>:3000/mcp`
+- Health endpoint: `http://<host>:3000/health`
+
+可以先用下面两个命令做基本检查：
+
+```bash
+curl http://127.0.0.1:3000/health
+curl -X POST http://127.0.0.1:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"deploy-check","version":"0.0.1"}}}'
+```
+
+### 使用 Docker 部署
+
+构建镜像：
+
+```bash
+docker build -t arxiv-paper-mcp-http .
+```
+
+运行容器：
+
+```bash
+docker run -d \
+  --name arxiv-paper-mcp-http \
+  -p 3000:3000 \
+  -e MCP_HOST=0.0.0.0 \
+  -e MCP_PORT=3000 \
+  -e MCP_PATH=/mcp \
+  -e MCP_LOG_LEVEL=info \
+  arxiv-paper-mcp-http
+```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:3000/health
+```
+
+### 使用 Docker Compose 部署
+
+仓库内已提供 `docker-compose.yml`：
+
+```bash
+docker compose config
+docker compose up -d
+docker compose ps
+docker compose logs -f
+```
+
+默认会映射：
+
+- `3000:3000`
+
+默认健康检查会探测：
+
+- `GET /health`
+
+### 服务器部署建议
+
+- 推荐在 Nginx / Caddy / Traefik 等反向代理后暴露服务
+- 如果是公网部署，建议使用 HTTPS
+- 如果只给内网服务调用，优先限制来源 IP 或仅暴露到内网
+- 当前服务默认无鉴权；若要公网开放，建议由反向代理或网关层补充认证控制
+
 ## MCP 调用方式
 
 服务使用单一 MCP 端点：
@@ -104,6 +209,7 @@ POST /mcp
 - `Accept: application/json, text/event-stream`
 - 服务是**无状态**的，不使用 `MCP-Session-Id`
 - 已内置 `CORS` 和 `OPTIONS` 预检响应，便于 LobeHub 这类浏览器/远程客户端接入
+- 已提供 `GET /health` 供部署环境做健康检查
 
 一个最小的 `initialize` 示例：
 
@@ -261,6 +367,13 @@ npm start
 - **作者**: yzfly
 - **邮箱**: yz.liu.me@gmail.com
 - **GitHub**: [https://github.com/yzfly](https://github.com/yzfly)
+
+## 相关文件
+
+- `Dockerfile`：容器镜像构建
+- `docker-compose.yml`：单服务部署示例
+- `.env.example`：环境变量示例
+- `AGENTS.md`：面向代码代理/自动化维护的仓库约定
 
 ## 相关链接
 
