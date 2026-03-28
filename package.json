@@ -1,11 +1,11 @@
 {
-    "name": "@langgpt/arxiv-paper-mcp",
+    "name": "@langgpt/arxiv-paper-mcp-http",
     "version": "1.2.1",
     "description": "一个简化的基于 arXiv 的论文检索与内容解析 MCP 服务器",
     "type": "module",
     "main": "build/index.js",
     "bin": {
-      "arxiv-paper-mcp": "build/index.js"
+      "arxiv-paper-mcp-http": "build/index.js"
     },
     "scripts": {
       "build": "tsc",
@@ -40,11 +40,12 @@
       "node": ">=18.0.0"
     },
     "dependencies": {
-      "@agentic/arxiv": "^7.6.7",
-      "@modelcontextprotocol/sdk": "^1.28.0",
-      "axios": "^1.7.9",
-      "jsdom": "^25.0.0",
-      "pdfreader": "^3.0.3"
+    "@agentic/arxiv": "^7.6.7",
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "axios": "^1.7.9",
+    "jsdom": "^25.0.0",
+    "ky": "^1.7.5",
+    "pdfreader": "^3.0.3"
     },
     "devDependencies": {
       "@types/jsdom": "^21.1.6",
