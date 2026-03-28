@@ -108,6 +108,12 @@ function assertRawCorsHeaders(headers, origin = undefined) {
   assert.match(String(Array.isArray(allowMethods) ? allowMethods[0] : allowMethods), /OPTIONS/);
 }
 
+function assertHealthCorsHeaders(headers, origin = undefined) {
+  assert.equal(headers.get("access-control-allow-origin"), origin ?? "*");
+  assert.match(headers.get("access-control-allow-methods") ?? "", /GET/);
+  assert.match(headers.get("access-control-allow-methods") ?? "", /OPTIONS/);
+}
+
 test("runtime serves a single MCP endpoint and enforces POST-only transport", async () => {
   await withHarness(async (harness) => {
     const getResponse = await fetch(`${harness.baseUrl}${harness.mcpPath}`, {
@@ -154,6 +160,16 @@ test("runtime responds to CORS preflight requests for browser clients", async ()
   });
 });
 
+test("runtime exposes a health endpoint for deployment probes", async () => {
+  await withHarness(async (harness) => {
+    const healthResponse = await fetch(`${harness.baseUrl}/health`);
+
+    assert.equal(healthResponse.status, 200);
+    assertHealthCorsHeaders(healthResponse.headers);
+    assert.deepEqual(await healthResponse.json(), { status: "ok" });
+  });
+});
+
 test("runtime stays stateless and does not emit or require MCP sessions", async () => {
   await withHarness(async (harness) => {
     const initializeResponse = await postJsonRpc(`${harness.baseUrl}${harness.mcpPath}`, {
@@ -178,7 +194,7 @@ test("runtime stays stateless and does not emit or require MCP sessions", async 
     assert.equal(initializePayload.id, 1);
     assert.equal(initializePayload.jsonrpc, "2.0");
     assert.ok(initializePayload.result?.protocolVersion, "initialize result should include protocolVersion");
-    assert.equal(initializePayload.result?.serverInfo?.name, "arxiv-paper-mcp");
+    assert.equal(initializePayload.result?.serverInfo?.name, "arxiv-paper-mcp-http");
 
     const initializedResponse = await postJsonRpc(
       `${harness.baseUrl}${harness.mcpPath}`,
@@ -272,7 +288,38 @@ test("runtime serves real tool calls over stateless HTTP without session headers
     const toolCallPayload = await readJsonRpcPayload(toolCallResponse);
     assert.equal(toolCallPayload.id, 2);
     assert.equal(toolCallPayload.result?.isError ?? false, false);
-    assert.match(toolCallPayload.result?.content?.[0]?.text ?? "", /PDF 下载链接:/);
+    assert.match(
+      toolCallPayload.result?.content?.[0]?.text ?? "",
+      /PDF 下载链接:\s*https:\/\/arxiv\.org\/pdf\/2403\.15137v1\.pdf/
+    );
+
+    const pdfUrlToolCallResponse = await postJsonRpc(
+      `${harness.baseUrl}${harness.mcpPath}`,
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "get_arxiv_pdf_url",
+          arguments: {
+            input: "https://arxiv.org/pdf/2403.15137v1.pdf",
+          },
+        },
+      },
+      {
+        "mcp-protocol-version": initializePayload.result.protocolVersion,
+      }
+    );
+
+    assert.equal(pdfUrlToolCallResponse.status, 200);
+
+    const pdfUrlToolCallPayload = await readJsonRpcPayload(pdfUrlToolCallResponse);
+    assert.equal(pdfUrlToolCallPayload.id, 3);
+    assert.equal(pdfUrlToolCallPayload.result?.isError ?? false, false);
+    assert.match(
+      pdfUrlToolCallPayload.result?.content?.[0]?.text ?? "",
+      /PDF 下载链接:\s*https:\/\/arxiv\.org\/pdf\/2403\.15137v1\.pdf/
+    );
   });
 });
 

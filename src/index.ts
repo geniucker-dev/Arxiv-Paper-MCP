@@ -12,7 +12,8 @@ type RuntimeInstance = {
   close: () => Promise<void>;
 };
 
-const CORS_ALLOW_METHODS = "GET, POST, OPTIONS";
+const CORS_ALLOW_METHODS_MCP = "POST, OPTIONS";
+const CORS_ALLOW_METHODS_HEALTH = "GET, OPTIONS";
 const CORS_ALLOW_HEADERS = "Content-Type, Accept, Mcp-Protocol-Version, Mcp-Session-Id, Authorization";
 const CORS_EXPOSE_HEADERS = "Content-Type, Mcp-Protocol-Version, Mcp-Session-Id";
 
@@ -66,13 +67,13 @@ function writeJsonRpcError(
   res.end(JSON.stringify(payload));
 }
 
-function getCorsHeaders(req: IncomingMessage): Record<string, string> {
+function getCorsHeaders(req: IncomingMessage, allowMethods: string = CORS_ALLOW_METHODS_MCP): Record<string, string> {
   const originHeader = req.headers.origin;
   const allowOrigin = typeof originHeader === "string" && originHeader.length > 0 ? originHeader : "*";
 
   return {
     "access-control-allow-origin": allowOrigin,
-    "access-control-allow-methods": CORS_ALLOW_METHODS,
+    "access-control-allow-methods": allowMethods,
     "access-control-allow-headers": CORS_ALLOW_HEADERS,
     "access-control-expose-headers": CORS_EXPOSE_HEADERS,
     vary: "Origin",
@@ -88,6 +89,18 @@ function writePreflightResponse(req: IncomingMessage, res: ServerResponse): void
     ...getCorsHeaders(req),
   });
   res.end();
+}
+
+function writeHealthResponse(req: IncomingMessage, res: ServerResponse): void {
+  if (res.headersSent) {
+    return;
+  }
+
+  res.writeHead(200, {
+    "content-type": "application/json",
+    ...getCorsHeaders(req, CORS_ALLOW_METHODS_HEALTH),
+  });
+  res.end(JSON.stringify({ status: "ok" }));
 }
 
 function writeNotFound(req: IncomingMessage, res: ServerResponse): void {
@@ -260,6 +273,11 @@ export async function startServerRuntime(config: Partial<RuntimeConfig> = {}): P
 
   const httpServer = createServer(async (req, res) => {
     const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    if (requestUrl.pathname === "/health") {
+      writeHealthResponse(req, res);
+      return;
+    }
+
     if (requestUrl.pathname !== resolvedConfig.path) {
       logger.warn("Rejected request for unknown path", {
         method: req.method,
