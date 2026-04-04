@@ -2,9 +2,10 @@
 
 ## Overview
 
-- This repository is a stateless Node.js + TypeScript MCP server for arXiv search and paper parsing.
+- This repository is a stateless Python MCP server for arXiv search and paper parsing.
 - The runtime transport is Streamable HTTP, not stdio.
-- The primary delivery target is a local/server process or container deployment, not npm publishing.
+- The implementation stack is `FastAPI + httpx + official mcp Python SDK`.
+- The primary delivery target is a local/server process or container deployment, not package publishing.
 - Treat this file as the root instruction set for coding agents working in this repository.
 
 ## Instruction sources present in this repo
@@ -18,23 +19,28 @@ If any of those files are added later, keep this file aligned with them.
 
 ## Environment
 
-- Node.js: `>=18` locally.
-- Container examples use `node:20`.
-- Package manager: `npm`.
-- Module system: ESM (`"type": "module"`).
-- TypeScript is compiled from `src/` into `build/`.
+- Python: `>=3.12`
+- Local dev environment: `conda spider`
+- Package installer: `pip`
+- Build metadata: `pyproject.toml`
+- Source layout: `src/arxiv_paper_mcp_http/`
+- Tests: `pytest`
+- Container examples use `python:3.12-slim`
 
 ## Repository layout
 
-- `src/index.ts` — HTTP runtime entrypoint, routing, CORS, `/health`, MCP transport wiring.
-- `src/createServer.ts` — MCP server factory, tool registration, arXiv/PDF/HTML logic.
-- `src/runtimeConfig.ts` — environment variable parsing and validation.
-- `src/logger.ts` — console logger and `MCP_LOG_LEVEL` handling.
-- `src/httpTestHarness.ts` — helper that boots the real HTTP runtime for tests.
-- `test/http-transport.test.js` — end-to-end HTTP/runtime contract tests.
-- `test/create-server-factory.test.js` — factory/tool-schema/tool-envelope tests.
-- `test/runtime-config.test.js` — env parsing tests.
-- `Dockerfile` — multi-stage container build.
+- `src/arxiv_paper_mcp_http/__main__.py` — process entrypoint, uvicorn startup.
+- `src/arxiv_paper_mcp_http/app.py` — FastAPI app, CORS, `/health`, MCP mount and lifespan wiring.
+- `src/arxiv_paper_mcp_http/config.py` — environment variable parsing and validation.
+- `src/arxiv_paper_mcp_http/logger.py` — console logger and `MCP_LOG_LEVEL` handling.
+- `src/arxiv_paper_mcp_http/mcp_server.py` — MCP server factory, tool registration, success/error envelopes.
+- `src/arxiv_paper_mcp_http/service.py` — arXiv API, HTML fetch, PDF download and parsing logic.
+- `tests/http_test_harness.py` — ASGI test helper for MCP HTTP requests.
+- `tests/test_http_transport.py` — end-to-end MCP HTTP transport and statelessness tests.
+- `tests/test_server_tools.py` — tool-schema and tool-envelope tests.
+- `tests/test_service.py` — service-layer parsing and fallback tests.
+- `tests/test_runtime_config.py` — env parsing tests.
+- `Dockerfile` — container build.
 - `docker-compose.yml` — single-service deployment example.
 - `.env.example` — example runtime environment values.
 - `README.md` — local run and deployment documentation.
@@ -44,57 +50,28 @@ If any of those files are added later, keep this file aligned with them.
 ### Install dependencies
 
 ```bash
-npm install
+conda run -n spider python -m pip install -e ".[dev]"
 ```
 
-### Build
+### Start the server
 
 ```bash
-npm run build
+conda run -n spider python -m arxiv_paper_mcp_http
 ```
-
-### Start the compiled server
-
-```bash
-npm start
-```
-
-This runs `node build/index.js`, so `build/` must exist first.
-
-### Dev workflow
-
-```bash
-npm run dev
-```
-
-Important: `npm run dev` is only `tsc --watch`. It does **not** run the server process for you.
-Use a second terminal to start the built server.
 
 ### Full test suite
 
 ```bash
-npm test
-```
-
-This expands to:
-
-```bash
-npm run build && node --test test/*.test.js
+conda run -n spider pytest
 ```
 
 ### Run a single test file
 
-Because tests import from `../build/*.js`, always build first:
-
 ```bash
-npm run build && node --test test/runtime-config.test.js
-```
-
-Other examples:
-
-```bash
-npm run build && node --test test/http-transport.test.js
-npm run build && node --test test/create-server-factory.test.js
+conda run -n spider pytest tests/test_runtime_config.py
+conda run -n spider pytest tests/test_http_transport.py
+conda run -n spider pytest tests/test_server_tools.py
+conda run -n spider pytest tests/test_service.py
 ```
 
 ### Deployment checks
@@ -122,7 +99,7 @@ curl http://127.0.0.1:3000/health
 - `MCP_PATH` — MCP endpoint path, default `/mcp`
 - `MCP_LOG_LEVEL` — console log level: `debug`, `info`, `warn`, `error`
 
-Validation rules from `src/runtimeConfig.ts`:
+Validation rules from `src/arxiv_paper_mcp_http/config.py`:
 
 - `MCP_HOST` must be a non-empty string.
 - `MCP_PORT` must be an integer between `1` and `65535`.
@@ -138,33 +115,28 @@ MCP_HOST=0.0.0.0
 
 ### Imports
 
-- Use ESM imports.
-- For local TypeScript modules, use the runtime `.js` suffix in import paths.
-  - Good: `import { logger } from "./logger.js";`
-  - Bad: `import { logger } from "./logger";`
+- Use absolute package imports inside `src/arxiv_paper_mcp_http/` when practical.
 - Keep imports grouped simply; the current codebase does not use a strict sorted-import tool.
 
 ### Formatting
 
-- Follow the existing style in `src/`:
-  - double quotes
-  - semicolons
-  - trailing commas where natural in multiline objects/arrays
-  - simple function-first modules rather than large class hierarchies
-- Prefer readable early returns over deep nesting.
+- Follow the existing Python style in `src/arxiv_paper_mcp_http/`:
+  - double quotes are not required; match nearby code
+  - explicit early returns
+  - small modules and function-oriented structure over deep class trees
+- Prefer readability over clever compactness.
 
 ### Types
 
-- TypeScript `strict` mode is enabled; keep code type-safe.
-- Prefer explicit `type` aliases for small structured values.
+- Keep code type-safe.
+- Prefer explicit dataclasses or typed helpers for structured values.
 - Preserve narrow runtime validation for env/config parsing.
-- Do not add `any`, `@ts-ignore`, or other type suppression shortcuts.
-- If a value is genuinely dynamic, narrow it with runtime checks before use.
+- Do not add `Any` or type suppression unless there is a concrete need.
 
 ### Naming
 
-- Use `camelCase` for variables and functions.
-- Use `PascalCase` for types where appropriate.
+- Use `snake_case` for variables and functions.
+- Use `PascalCase` for classes and dataclasses.
 - Keep MCP tool names stable and lowercase with underscores:
   - `search_arxiv`
   - `get_recent_ai_papers`
@@ -174,8 +146,8 @@ MCP_HOST=0.0.0.0
 
 ### Error handling
 
-- Log operational failures with `logger` from `src/logger.ts`.
-- Throw meaningful `Error` instances for internal failures.
+- Log operational failures with `logger` from `src/arxiv_paper_mcp_http/logger.py`.
+- Raise meaningful `RuntimeError` or `ValueError` instances for internal failures.
 - Preserve the current pattern:
   - English logs for operators/debugging
   - Chinese user-facing tool output/error text where that is already part of tool behavior
@@ -187,33 +159,42 @@ MCP_HOST=0.0.0.0
 - Keep `/mcp` and `/health` behavior explicit and small.
 - Keep CORS behavior aligned with tests and docs.
 - If you change transport semantics, update:
-  - `src/index.ts`
-  - `test/http-transport.test.js`
+  - `src/arxiv_paper_mcp_http/app.py`
+  - `tests/test_http_transport.py`
   - `README.md`
   - `AGENTS.md`
   - Docker/compose files if deploy behavior changes
 
 ## MCP-specific guidance
 
-- `src/createServer.ts` is the source of truth for tool registration and handler behavior.
+- `src/arxiv_paper_mcp_http/mcp_server.py` is the source of truth for tool registration and handler behavior.
+- Use the official Python `mcp` SDK; do not hand-roll JSON-RPC or tool schema plumbing if the SDK already supports it.
 - Keep tool schemas explicit and stable.
 - Preserve current success/error envelope patterns used by tests.
 - Do not add stateful session assumptions unless explicitly requested.
 - Do not change response shapes casually; tests intentionally lock down the contract.
 
+## arXiv and HTTP guidance
+
+- Use `httpx.AsyncClient` for outbound HTTP.
+- Reuse the shared client created in FastAPI lifespan; do not create a new client per request.
+- HTML parsing should remain the first choice for content extraction.
+- PDF download/parsing remains the fallback path and still requires writable temp storage.
+- If an existing SDK is synchronous and would block the FastAPI request path, prefer `httpx` over forcing that SDK into the async runtime.
+
 ## Testing guidance
 
-- Tests are plain `.js` files using Node’s built-in test runner.
-- Tests import compiled modules from `build/`, not source files from `src/`.
-- If you change source code, build before running targeted tests.
-- Prefer the narrowest relevant test during iteration, then run `npm test` before finishing.
+- Tests are Python files under `tests/` and use `pytest`.
+- Prefer ASGI-level tests with `httpx` and lifespan management for transport checks.
+- If you change source code, run the narrowest relevant test during iteration, then run the full suite before finishing.
 
 Examples:
 
 ```bash
-npm run build && node --test test/http-transport.test.js
-npm run build && node --test test/create-server-factory.test.js
-npm run build && node --test test/runtime-config.test.js
+conda run -n spider pytest tests/test_http_transport.py
+conda run -n spider pytest tests/test_server_tools.py
+conda run -n spider pytest tests/test_service.py
+conda run -n spider pytest
 ```
 
 ## Deployment and ops guidance
@@ -229,11 +210,10 @@ npm run build && node --test test/runtime-config.test.js
 ## Safety rules
 
 - Never commit `.env` files or secrets.
-- Do not treat npm publishing as the primary workflow.
-- Do not move tests to TypeScript unless the whole test pipeline is updated.
 - Do not change default host/port/path behavior without updating docs and tests.
 - Do not widen network exposure silently.
 - Do not remove CORS or health behavior without checking browser/deployment implications.
+- Do not revert user-visible tool content from Chinese to English unless explicitly requested.
 
 ## Definition of done
 
@@ -242,8 +222,7 @@ Before finishing code changes, run the smallest relevant checks first, then the 
 Minimum for most source changes:
 
 ```bash
-npm test
-npm run build
+conda run -n spider pytest
 ```
 
 For runtime/deployment changes, also run:
@@ -262,8 +241,7 @@ curl http://127.0.0.1:3000/health
 
 ## Quick gotchas for agents
 
-- `npm run dev` does not serve HTTP by itself.
-- Tests depend on fresh build output.
-- Local imports must keep the `.js` suffix.
-- Tool names and envelopes are part of the tested contract.
+- The repo now runs from Python source directly; there is no TypeScript build output.
+- Tests rely on FastAPI lifespan startup to initialize the mounted MCP session manager.
+- Tool names and text envelopes are part of the tested contract.
 - User-visible tool content is intentionally Chinese even though logs are in English.

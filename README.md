@@ -1,217 +1,88 @@
 # ArXiv Paper MCP HTTP
 
-一个基于 arXiv 的论文检索与内容解析工具。支持 Model Context Protocol (MCP) 标准，提供论文搜索、PDF链接获取和内容解析功能。
+一个基于 `FastAPI + httpx + 官方 mcp Python SDK` 的 arXiv MCP 服务，提供论文搜索、PDF 链接生成、论文内容解析和 `cs.AI` 最新论文列表。
 
-## 功能特性
+## 说明
 
-* 🔍 **arXiv 论文智能搜索**：关键词检索，快速定位你关心的论文
-* 🔗 **获取 PDF 下载链接**：获取 arXiv 论文的直接 PDF 下载链接
-* 📄 **论文内容解析**：智能解析论文内容，优先使用 HTML 版本，回退到 PDF
-* 🆕 **AI领域最新论文**：获取 arXiv AI 领域今日最新更新论文列表
+- 运行传输层是 Streamable HTTP，不使用 stdio。
+- MCP SDK 直接使用官方 Python `mcp` 包。
+- arXiv 访问改成 `httpx.AsyncClient`，以便连接复用和并发请求。
+- `arxiv` 现成 Python 包是同步 `requests` 风格，不适合这个异步 HTTP 服务主路径，所以这里没有接入它。
 
-## 本地运行
+## 功能
 
-本项目按**本地 Node.js 服务**方式运行，不按 npm 包发布使用。
+- `search_arxiv`：搜索 arXiv 论文
+- `get_recent_ai_papers`：获取 `cs.AI/recent`
+- `get_arxiv_pdf_url`：将 arXiv URL 或 ID 转成 PDF 下载链接
+- `parse_paper_content`：优先抓 HTML，失败时回退 PDF 提取
 
-### 环境要求
+## 本地开发
 
-- Node.js >= 18
-- npm
+默认开发环境使用 `conda spider`。
 
 ### 安装依赖
 
 ```bash
-npm install
+conda run -n spider python -m pip install -e ".[dev]"
 ```
 
 ### 启动服务
 
 ```bash
-npm run build
-npm start
+conda run -n spider python -m arxiv_paper_mcp_http
 ```
 
-可通过环境变量控制控制台日志等级：
-
-```bash
-npm run build
-MCP_LOG_LEVEL=debug npm start
-```
-
-支持的等级：`debug`、`info`、`warn`、`error`，默认是 `info`。
-
-启动后默认监听：
+默认监听：
 
 ```text
 http://127.0.0.1:3000/mcp
 ```
 
-### 开发模式
+### 调试日志
 
 ```bash
-# TypeScript 监听编译
-npm run dev
-
-# 另开一个终端运行编译后的服务
-npm run build
-npm start
+MCP_LOG_LEVEL=debug conda run -n spider python -m arxiv_paper_mcp_http
 ```
 
-### 环境变量
+支持的日志等级：`debug`、`info`、`warn`、`error`。
 
-服务支持以下环境变量：
+### 运行测试
+
+```bash
+conda run -n spider pytest
+```
+
+运行单个测试文件：
+
+```bash
+conda run -n spider pytest tests/test_http_transport.py
+conda run -n spider pytest tests/test_server_tools.py
+conda run -n spider pytest tests/test_service.py
+conda run -n spider pytest tests/test_runtime_config.py
+```
+
+## 环境变量
 
 - `MCP_HOST`：监听地址，默认 `127.0.0.1`
 - `MCP_PORT`：监听端口，默认 `3000`
 - `MCP_PATH`：MCP HTTP 路径，默认 `/mcp`
 - `MCP_LOG_LEVEL`：日志等级，默认 `info`
 
-> 如果部署在 Docker 或服务器容器环境中，通常应设置 `MCP_HOST=0.0.0.0`。
-
-## Streamable HTTP 运行方式
-
-本项目默认使用 **MCP Streamable HTTP** 作为运行传输层（不再使用 stdio 启动运行时）。
-
-启动后提供单一 MCP 端点：
-
-```text
-http://<MCP_HOST>:<MCP_PORT><MCP_PATH>
-```
-
-默认值：
-
-- `MCP_HOST=127.0.0.1`
-- `MCP_PORT=3000`
-- `MCP_PATH=/mcp`
-
-示例：
+容器部署通常应设置：
 
 ```bash
-# 默认监听 http://127.0.0.1:3000/mcp
-npm start
-
-# 自定义地址
-MCP_HOST=0.0.0.0 MCP_PORT=8080 MCP_PATH=/mcp npm start
+MCP_HOST=0.0.0.0
 ```
 
-### 构建与测试
+## MCP HTTP 契约
 
-```bash
-# 构建
-npm run build
+- 默认 MCP endpoint：`http://127.0.0.1:3000/mcp`
+- 健康检查：`GET /health` 返回 `200 {"status":"ok"}`
+- MCP 服务为无状态实现，不返回也不要求 `MCP-Session-Id`
+- 当前实现使用单一 `POST /mcp` 处理 JSON-RPC 请求
+- 已启用 CORS，便于浏览器 MCP 客户端调用
 
-# 运行测试（会先 build）
-npm test
-```
-
-## 部署
-
-### 部署前检查
-
-在部署到服务器前，建议至少确认以下事项：
-
-1. 能访问外网 `arxiv.org`
-2. 运行环境有可写临时目录（PDF fallback 会用到）
-3. 已执行：
-
-```bash
-npm test
-npm run build
-```
-
-### 作为 Node.js 服务部署
-
-```bash
-npm install
-npm run build
-MCP_HOST=0.0.0.0 MCP_PORT=3000 MCP_PATH=/mcp MCP_LOG_LEVEL=info npm start
-```
-
-启动后：
-
-- MCP endpoint: `http://<host>:3000/mcp`
-- Health endpoint: `http://<host>:3000/health`
-
-可以先用下面两个命令做基本检查：
-
-```bash
-curl http://127.0.0.1:3000/health
-curl -X POST http://127.0.0.1:3000/mcp \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"deploy-check","version":"0.0.1"}}}'
-```
-
-### 使用 Docker 部署
-
-构建镜像：
-
-```bash
-docker build -t arxiv-paper-mcp-http .
-```
-
-运行容器：
-
-```bash
-docker run -d \
-  --name arxiv-paper-mcp-http \
-  -p 3000:3000 \
-  -e MCP_HOST=0.0.0.0 \
-  -e MCP_PORT=3000 \
-  -e MCP_PATH=/mcp \
-  -e MCP_LOG_LEVEL=info \
-  arxiv-paper-mcp-http
-```
-
-健康检查：
-
-```bash
-curl http://127.0.0.1:3000/health
-```
-
-### 使用 Docker Compose 部署
-
-仓库内已提供 `docker-compose.yml`：
-
-```bash
-docker compose config
-docker compose up -d
-docker compose ps
-docker compose logs -f
-```
-
-默认会映射：
-
-- `3000:3000`
-
-默认健康检查会探测：
-
-- `GET /health`
-
-### 服务器部署建议
-
-- 推荐在 Nginx / Caddy / Traefik 等反向代理后暴露服务
-- 如果是公网部署，建议使用 HTTPS
-- 如果只给内网服务调用，优先限制来源 IP 或仅暴露到内网
-- 当前服务默认无鉴权；若要公网开放，建议由反向代理或网关层补充认证控制
-
-## MCP 调用方式
-
-服务使用单一 MCP 端点：
-
-```text
-POST /mcp
-```
-
-请求要求：
-
-- `Content-Type: application/json`
-- `Accept: application/json, text/event-stream`
-- 服务是**无状态**的，不使用 `MCP-Session-Id`
-- 已内置 `CORS` 和 `OPTIONS` 预检响应，便于 LobeHub 这类浏览器/远程客户端接入
-- 已提供 `GET /health` 供部署环境做健康检查
-
-一个最小的 `initialize` 示例：
+最小初始化请求：
 
 ```bash
 curl -X POST http://127.0.0.1:3000/mcp \
@@ -232,31 +103,73 @@ curl -X POST http://127.0.0.1:3000/mcp \
   }'
 ```
 
-初始化之后，可以继续对同一端点发送 `notifications/initialized`、`tools/list`、`tools/call` 等 JSON-RPC 请求。
+## Docker
 
-协议说明：
+构建镜像：
 
-- 使用单一 MCP 端点路径
-- `POST` 为必需方法（用于 initialize 与后续 JSON-RPC 请求）
-- 服务为无状态实现：不返回也不要求 `MCP-Session-Id`
-- `GET` 在当前实现中不启用，将返回不支持行为
+```bash
+docker build -t arxiv-paper-mcp-http .
+```
 
-## 可用工具与参数
+运行容器：
 
-### 1. 搜索论文
+```bash
+docker run -d \
+  --name arxiv-paper-mcp-http \
+  -p 3000:3000 \
+  -e MCP_HOST=0.0.0.0 \
+  -e MCP_PORT=3000 \
+  -e MCP_PATH=/mcp \
+  -e MCP_LOG_LEVEL=info \
+  arxiv-paper-mcp-http
+```
 
-* **工具名**: `search_arxiv`
-* **参数**:
-  * `query`：搜索关键词
-  * `maxResults`：返回论文数（可选，默认 5）
+Compose：
 
-### 2. 获取PDF下载链接
+```bash
+docker compose config
+docker compose up -d
+docker compose ps
+docker compose logs -f
+```
 
-* **工具名**: `get_arxiv_pdf_url`
-* **参数**:
-  * `input`：arXiv 论文 URL 或 arXiv ID（如：2403.15137v1）
+## 部署前检查
 
-### 3. 解析论文内容
+至少确认：
+
+1. 运行环境能访问 `arxiv.org`
+2. 运行环境有可写临时目录，供 PDF fallback 下载与清理
+3. 已执行 `conda run -n spider pytest`
+4. 若改了容器链路，已执行 `docker compose config`
+
+## 项目结构
+
+```text
+.
+├── src/arxiv_paper_mcp_http/
+│   ├── __main__.py      # 进程入口
+│   ├── app.py           # FastAPI 应用与 lifespan
+│   ├── config.py        # MCP_HOST/MCP_PORT/MCP_PATH 解析
+│   ├── logger.py        # MCP_LOG_LEVEL 日志配置
+│   ├── mcp_server.py    # MCP 工具注册
+│   └── service.py       # arXiv HTTP、HTML、PDF 处理
+├── tests/
+│   ├── http_test_harness.py
+│   ├── test_http_transport.py
+│   ├── test_runtime_config.py
+│   ├── test_server_tools.py
+│   └── test_service.py
+├── Dockerfile
+├── docker-compose.yml
+├── pyproject.toml
+└── AGENTS.md
+```
+
+## 额外注意
+
+- 服务没有内建鉴权，不应默认直接暴露到公网。
+- PDF 解析仍然依赖临时文件，并在请求结束后清理。
+- 如果改动 `/mcp`、`/health`、CORS、工具名或工具响应形状，必须同步更新测试和文档。
 
 * **工具名**: `parse_paper_content`
 * **参数**:

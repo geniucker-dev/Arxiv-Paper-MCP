@@ -1,29 +1,27 @@
-FROM node:20-bookworm-slim AS builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-COPY tsconfig.json ./
+COPY pyproject.toml README.md ./
 COPY src ./src
-COPY test ./test
-RUN npm run build && npm prune --omit=dev
+RUN python -m pip install --upgrade pip && \
+    python -m pip install /app
 
-FROM node:20-bookworm-slim AS runner
+FROM python:3.12-slim AS runner
 
 WORKDIR /app
 
-ENV NODE_ENV=production \
+ENV PYTHONUNBUFFERED=1 \
     MCP_HOST=0.0.0.0 \
     MCP_PORT=3000 \
     MCP_PATH=/mcp \
     MCP_LOG_LEVEL=info
 
-COPY --from=builder /app/package.json /app/package-lock.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/build ./build
+COPY --from=builder /usr/local /usr/local
 
 EXPOSE 3000
 
-CMD ["node", "build/index.js"]
+CMD ["arxiv-paper-mcp-http"]
