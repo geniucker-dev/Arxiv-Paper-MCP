@@ -20,8 +20,8 @@ If any of those files are added later, keep this file aligned with them.
 ## Environment
 
 - Python: `>=3.12`
-- Local dev environment: `conda spider`
-- Package installer: `pip`
+- Local dev environment: `uv` virtualenv, typically `.venv`
+- Package installer: `uv pip`
 - Build metadata: `pyproject.toml`
 - Source layout: `src/arxiv_paper_mcp_http/`
 - Tests: `pytest`
@@ -50,28 +50,29 @@ If any of those files are added later, keep this file aligned with them.
 ### Install dependencies
 
 ```bash
-conda run -n spider python -m pip install -e ".[dev]"
+uv venv --python 3.12
+uv pip install -e ".[dev]"
 ```
 
 ### Start the server
 
 ```bash
-conda run -n spider python -m arxiv_paper_mcp_http
+uv run python -m arxiv_paper_mcp_http
 ```
 
 ### Full test suite
 
 ```bash
-conda run -n spider pytest
+uv run pytest
 ```
 
 ### Run a single test file
 
 ```bash
-conda run -n spider pytest tests/test_runtime_config.py
-conda run -n spider pytest tests/test_http_transport.py
-conda run -n spider pytest tests/test_server_tools.py
-conda run -n spider pytest tests/test_service.py
+uv run pytest tests/test_runtime_config.py
+uv run pytest tests/test_http_transport.py
+uv run pytest tests/test_server_tools.py
+uv run pytest tests/test_service.py
 ```
 
 ### Deployment checks
@@ -191,10 +192,10 @@ MCP_HOST=0.0.0.0
 Examples:
 
 ```bash
-conda run -n spider pytest tests/test_http_transport.py
-conda run -n spider pytest tests/test_server_tools.py
-conda run -n spider pytest tests/test_service.py
-conda run -n spider pytest
+uv run pytest tests/test_http_transport.py
+uv run pytest tests/test_server_tools.py
+uv run pytest tests/test_service.py
+uv run pytest
 ```
 
 ## Deployment and ops guidance
@@ -222,7 +223,7 @@ Before finishing code changes, run the smallest relevant checks first, then the 
 Minimum for most source changes:
 
 ```bash
-conda run -n spider pytest
+uv run pytest
 ```
 
 For runtime/deployment changes, also run:
