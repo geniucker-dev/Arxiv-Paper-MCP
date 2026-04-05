@@ -53,7 +53,7 @@ class FakeArxivService:
     async def parse_paper_content(self, input: str) -> FakeParsedPaper:
         if input == "explode":
             raise RuntimeError("boom")
-        return FakeParsedPaper(content="=== 论文内容 (来源: HTML) ===\n\na parsed paper", source="html")
+        return FakeParsedPaper(content="=== Paper Content (Source: HTML) ===\n\na parsed paper", source="html")
 
 
 async def initialize(harness):
@@ -135,7 +135,7 @@ async def test_get_arxiv_pdf_url_preserves_existing_success_envelope() -> None:
             payload = await read_json_rpc_payload(response)
             assert payload["result"]["isError"] is False
             assert payload["result"]["content"][0]["type"] == "text"
-            assert "PDF 下载链接: https://arxiv.org/pdf/2403.15137v1.pdf" in payload["result"]["content"][0]["text"]
+            assert "PDF download URL: https://arxiv.org/pdf/2403.15137v1.pdf" in payload["result"]["content"][0]["text"]
 
 
 @pytest.mark.asyncio
@@ -156,4 +156,4 @@ async def test_tool_failures_keep_text_error_envelope() -> None:
         payload = await read_json_rpc_payload(response)
         assert payload["result"]["isError"] is True
         assert payload["result"]["content"][0]["type"] == "text"
-        assert "工具执行失败: boom" in payload["result"]["content"][0]["text"]
+        assert "Tool execution failed: boom" in payload["result"]["content"][0]["text"]

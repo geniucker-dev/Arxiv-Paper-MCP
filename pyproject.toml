@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "arxiv-paper-mcp-http"
 version = "2.0.0"
-description = "一个基于 arXiv 的论文检索与内容解析 MCP HTTP 服务器"
+description = "An arXiv MCP HTTP server for paper search and content parsing"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }

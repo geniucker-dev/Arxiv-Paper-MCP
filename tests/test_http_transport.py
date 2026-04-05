@@ -51,7 +51,7 @@ class FakeArxivService:
         return f"https://arxiv.org/pdf/{input.replace('https://arxiv.org/abs/', '').replace('https://arxiv.org/pdf/', '').removesuffix('.pdf')}.pdf"
 
     async def parse_paper_content(self, input: str) -> FakeParsedPaper:
-        return FakeParsedPaper(content=f"=== 论文内容 (来源: HTML) ===\n\n{input}", source="html")
+        return FakeParsedPaper(content=f"=== Paper Content (Source: HTML) ===\n\n{input}", source="html")
 
 
 def assert_cors_headers(headers) -> None:

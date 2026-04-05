@@ -79,7 +79,7 @@ class ArxivService:
     def build_search_query(self, query: str) -> str:
         normalized_query = _clean_text(query)
         if not normalized_query:
-            raise RuntimeError("搜索关键词不能为空")
+            raise RuntimeError("Search query cannot be empty")
 
         if ARXIV_FIELD_PREFIX_PATTERN.search(normalized_query):
             return normalized_query
@@ -109,7 +109,7 @@ class ArxivService:
                 "Failed to search arXiv papers",
                 extra={"query": query, "max_results": max_results, "error": str(error)},
             )
-            raise RuntimeError(f"搜索失败: {error}") from error
+            raise RuntimeError(f"Search failed: {error}") from error
 
     def parse_search_response(self, xml_payload: str) -> SearchResponse:
         root = ET.fromstring(xml_payload)
@@ -144,7 +144,7 @@ class ArxivService:
             return response.text
         except Exception as error:
             logger.error("Failed to fetch recent AI papers", extra={"url": ARXIV_RECENT_AI_URL, "error": str(error)})
-            raise RuntimeError(f"获取最新论文失败: {error}") from error
+            raise RuntimeError(f"Failed to fetch recent papers: {error}") from error
 
     def extract_arxiv_id(self, input_value: str) -> str:
         if not input_value.startswith(("http://", "https://")):
@@ -160,7 +160,7 @@ class ArxivService:
             return ARXIV_PDF_URL.format(arxiv_id=self.extract_arxiv_id(input_value))
         except Exception as error:
             logger.error("Failed to build arXiv PDF URL", extra={"input": input_value, "error": str(error)})
-            raise RuntimeError(f"获取PDF链接失败: {error}") from error
+            raise RuntimeError(f"Failed to build PDF URL: {error}") from error
 
     async def get_arxiv_html_content(self, arxiv_id: str) -> str | None:
         clean_arxiv_id = re.sub(r"v\d+$", "", arxiv_id)
@@ -191,15 +191,15 @@ class ArxivService:
 
             main_content = soup.select_one(".ltx_page_main") or soup.select_one(".ltx_document") or soup.body
             if main_content is None:
-                raise RuntimeError("无法找到主要内容区域")
+                raise RuntimeError("Could not find the main content area")
 
             text = _clean_text(main_content.get_text(" ", strip=True))
             if len(text) < 100:
-                raise RuntimeError("HTML 文本内容过少")
+                raise RuntimeError("HTML text content is too short")
             return text
         except Exception as error:
             logger.error("Failed to extract text from HTML", extra={"error": str(error)})
-            raise RuntimeError(f"HTML 解析失败: {error}") from error
+            raise RuntimeError(f"HTML parsing failed: {error}") from error
 
     async def download_temp_pdf(self, pdf_url: str) -> str:
         fd, temp_path = tempfile.mkstemp(prefix="arxiv_temp_", suffix=".pdf")
@@ -216,7 +216,7 @@ class ArxivService:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
             logger.error("Temporary PDF download request failed", extra={"pdf_url": pdf_url, "error": str(error)})
-            raise RuntimeError(f"下载失败: {error}") from error
+            raise RuntimeError(f"Download failed: {error}") from error
 
     async def extract_pdf_text(self, pdf_path: str) -> str:
         def read_pdf() -> str:
@@ -227,11 +227,11 @@ class ArxivService:
             text = await asyncio.to_thread(read_pdf)
             cleaned = _clean_text(text)
             if len(cleaned) < 100:
-                raise RuntimeError("PDF 文本提取失败或内容过少")
+                raise RuntimeError("PDF text extraction failed or content is too short")
             return cleaned
         except Exception as error:
             logger.error("Failed to parse PDF", extra={"pdf_path": pdf_path, "error": str(error)})
-            raise RuntimeError(f"PDF 解析失败: {error}") from error
+            raise RuntimeError(f"PDF parsing failed: {error}") from error
 
     async def parse_paper_content(self, input_value: str) -> ParsedPaperContent:
         temp_pdf_path: str | None = None
@@ -248,11 +248,11 @@ class ArxivService:
                 paper_text = await self.extract_pdf_text(temp_pdf_path)
                 source = "pdf"
 
-            output = f"=== 论文内容 (来源: {source.upper()}) ===\n\n{paper_text}"
+            output = f"=== Paper Content (Source: {source.upper()}) ===\n\n{paper_text}"
             return ParsedPaperContent(content=output, source=source)
         except Exception as error:
             logger.error("Failed to parse paper content", extra={"input": input_value, "error": str(error)})
-            raise RuntimeError(f"论文内容解析失败: {error}") from error
+            raise RuntimeError(f"Paper content parsing failed: {error}") from error
         finally:
             if temp_pdf_path and os.path.exists(temp_pdf_path):
                 try:

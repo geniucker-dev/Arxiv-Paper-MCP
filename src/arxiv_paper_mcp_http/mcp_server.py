@@ -29,13 +29,13 @@ def create_arxiv_mcp_server(service: ArxivService, config: RuntimeConfig) -> Fas
         log_level=get_configured_log_level().upper(),
     )
 
-    @server.tool(name="search_arxiv", description="搜索 arXiv 论文")
+    @server.tool(name="search_arxiv", description="Search arXiv papers")
     async def search_arxiv(query: str, maxResults: float = 5) -> CallToolResult:
-        """搜索 arXiv 论文。
+        """Search arXiv papers.
 
         Args:
-            query: 搜索关键词，支持普通英文关键词，也支持完整 arXiv search_query 表达式。
-            maxResults: 最大结果数量，默认 5。
+            query: Search keywords or a full arXiv search_query expression.
+            maxResults: Maximum number of results to return. Defaults to 5.
         """
         logger.info("Starting MCP tool execution", extra={"tool_name": "search_arxiv", "argument_keys": ["query", "maxResults"]})
         try:
@@ -43,50 +43,50 @@ def create_arxiv_mcp_server(service: ArxivService, config: RuntimeConfig) -> Fas
             lines = [
                 f"{index}. **{paper.title}**\n"
                 f"   ID: {paper.id}\n"
-                f"   发布日期: {paper.published}\n"
-                f"   作者: {', '.join(paper.authors)}\n"
-                f"   摘要: {paper.summary[:300]}...\n"
+                f"   Published: {paper.published}\n"
+                f"   Authors: {', '.join(paper.authors)}\n"
+                f"   Summary: {paper.summary[:300]}...\n"
                 f"   URL: {paper.url}\n"
                 for index, paper in enumerate(results.papers, start=1)
             ]
-            text = f"找到 {len(results.papers)} 篇相关论文（总计 {results.total_results} 篇）：\n\n{''.join(lines)}"
+            text = f"Found {len(results.papers)} matching papers ({results.total_results} total):\n\n{''.join(lines)}"
             return build_text_result(text)
         except Exception as error:
             logger.error("MCP tool execution failed", extra={"tool_name": "search_arxiv", "error": str(error)})
-            return build_text_result(f"工具执行失败: {error}", is_error=True)
+            return build_text_result(f"Tool execution failed: {error}", is_error=True)
 
-    @server.tool(name="get_recent_ai_papers", description="获取 arXiv cs.AI 分类最新论文列表（cs.AI/recent）")
+    @server.tool(name="get_recent_ai_papers", description="Fetch the latest arXiv cs.AI papers (cs.AI/recent)")
     async def get_recent_ai_papers() -> CallToolResult:
-        """获取 arXiv cs.AI 分类最新论文列表（cs.AI/recent）。"""
+        """Fetch the latest arXiv cs.AI papers (cs.AI/recent)."""
         logger.info("Starting MCP tool execution", extra={"tool_name": "get_recent_ai_papers", "argument_keys": []})
         try:
             html_content = await service.get_recent_ai_papers()
             return build_text_result(html_content)
         except Exception as error:
             logger.error("MCP tool execution failed", extra={"tool_name": "get_recent_ai_papers", "error": str(error)})
-            return build_text_result(f"工具执行失败: {error}", is_error=True)
+            return build_text_result(f"Tool execution failed: {error}", is_error=True)
 
-    @server.tool(name="get_arxiv_pdf_url", description="获取 arXiv PDF 下载链接")
+    @server.tool(name="get_arxiv_pdf_url", description="Get the arXiv PDF download URL")
     async def get_arxiv_pdf_url(input: str) -> CallToolResult:
-        """生成 arXiv PDF 下载链接。
+        """Build the arXiv PDF download URL.
 
         Args:
-            input: arXiv ID 或论文 URL。
+            input: An arXiv ID or paper URL.
         """
         logger.info("Starting MCP tool execution", extra={"tool_name": "get_arxiv_pdf_url", "argument_keys": ["input"]})
         try:
             pdf_url = service.get_arxiv_pdf_url(input)
-            return build_text_result(f"PDF 下载链接: {pdf_url}")
+            return build_text_result(f"PDF download URL: {pdf_url}")
         except Exception as error:
             logger.error("MCP tool execution failed", extra={"tool_name": "get_arxiv_pdf_url", "error": str(error)})
-            return build_text_result(f"工具执行失败: {error}", is_error=True)
+            return build_text_result(f"Tool execution failed: {error}", is_error=True)
 
-    @server.tool(name="parse_paper_content", description="提取 arXiv 论文正文内容")
+    @server.tool(name="parse_paper_content", description="Extract arXiv paper body text")
     async def parse_paper_content(input: str) -> CallToolResult:
-        """解析 arXiv 论文正文。
+        """Parse arXiv paper body text.
 
         Args:
-            input: arXiv ID 或论文 URL。
+            input: An arXiv ID or paper URL.
         """
         logger.info("Starting MCP tool execution", extra={"tool_name": "parse_paper_content", "argument_keys": ["input"]})
         try:
@@ -94,6 +94,6 @@ def create_arxiv_mcp_server(service: ArxivService, config: RuntimeConfig) -> Fas
             return build_text_result(result.content)
         except Exception as error:
             logger.error("MCP tool execution failed", extra={"tool_name": "parse_paper_content", "error": str(error)})
-            return build_text_result(f"工具执行失败: {error}", is_error=True)
+            return build_text_result(f"Tool execution failed: {error}", is_error=True)
 
     return server

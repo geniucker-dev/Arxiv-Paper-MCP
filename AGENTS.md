@@ -21,7 +21,7 @@ If any of those files are added later, keep this file aligned with them.
 
 - Python: `>=3.12`
 - Local dev environment: `uv` virtualenv, typically `.venv`
-- Package installer: `uv pip`
+- Dependency workflow: `uv sync`
 - Build metadata: `pyproject.toml`
 - Source layout: `src/arxiv_paper_mcp_http/`
 - Tests: `pytest`
@@ -51,7 +51,7 @@ If any of those files are added later, keep this file aligned with them.
 
 ```bash
 uv venv --python 3.12
-uv pip install -e ".[dev]"
+uv sync --extra dev
 ```
 
 ### Start the server

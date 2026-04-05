@@ -1,59 +1,61 @@
 # ArXiv Paper MCP HTTP
 
-一个基于 `FastAPI + httpx + 官方 mcp Python SDK` 的 arXiv MCP 服务，提供论文搜索、PDF 链接生成、论文内容解析和 `cs.AI` 最新论文列表。
+English | [Chinese (Simplified)](README.zh-CN.md)
 
-## 说明
+A stateless arXiv MCP server built with `FastAPI + httpx + the official Python mcp SDK`. It provides paper search, PDF URL generation, paper content parsing, and a `cs.AI` recent-paper listing over Streamable HTTP.
 
-- 运行传输层是 Streamable HTTP，不使用 stdio。
-- MCP SDK 直接使用官方 Python `mcp` 包。
-- arXiv 请求通过 `httpx.AsyncClient` 处理，以便连接复用和并发请求。
-- `parse_paper_content` 优先抓取 HTML，失败时回退到 PDF 文本提取。
+## Overview
 
-## 功能
+- Transport is Streamable HTTP, not stdio.
+- Outbound arXiv requests use a shared `httpx.AsyncClient`.
+- `parse_paper_content` prefers the HTML version and falls back to PDF text extraction.
+- The runtime target is a local/server process or container deployment.
 
-- `search_arxiv`：搜索 arXiv 论文，支持普通关键词和完整 arXiv `search_query` 表达式
-- `get_recent_ai_papers`：获取 `cs.AI/recent`
-- `get_arxiv_pdf_url`：将 arXiv URL 或 ID 转成 PDF 下载链接
-- `parse_paper_content`：提取论文正文内容，优先 HTML，失败时回退 PDF
+## Tools
 
-## 本地开发
+- `search_arxiv`: Search arXiv papers with plain keywords or a full arXiv `search_query` expression
+- `get_recent_ai_papers`: Fetch `cs.AI/recent`
+- `get_arxiv_pdf_url`: Convert an arXiv URL or ID into a PDF download URL
+- `parse_paper_content`: Extract paper body text, preferring HTML and falling back to PDF
 
-推荐使用 `uv` 管理本地虚拟环境。
+## Local Development
 
-### 安装依赖
+Use `uv` for the local virtual environment.
+
+### Install dependencies
 
 ```bash
 uv venv --python 3.12
-uv pip install -e ".[dev]"
+uv sync --extra dev
 ```
 
-### 启动服务
+### Start the server
 
 ```bash
 uv run python -m arxiv_paper_mcp_http
 ```
 
-默认监听：
+Default endpoint:
 
 ```text
 http://127.0.0.1:3000/mcp
 ```
 
-### 调试日志
+### Debug logging
 
 ```bash
 MCP_LOG_LEVEL=debug uv run python -m arxiv_paper_mcp_http
 ```
 
-支持的日志等级：`debug`、`info`、`warn`、`error`。
+Supported log levels: `debug`, `info`, `warn`, `error`.
 
-### 运行测试
+### Run tests
 
 ```bash
 uv run pytest
 ```
 
-运行单个测试文件：
+Run a single test file:
 
 ```bash
 uv run pytest tests/test_http_transport.py
@@ -62,28 +64,28 @@ uv run pytest tests/test_service.py
 uv run pytest tests/test_runtime_config.py
 ```
 
-## 环境变量
+## Environment Variables
 
-- `MCP_HOST`：监听地址，默认 `127.0.0.1`
-- `MCP_PORT`：监听端口，默认 `3000`
-- `MCP_PATH`：MCP HTTP 路径，默认 `/mcp`
-- `MCP_LOG_LEVEL`：日志等级，默认 `info`
+- `MCP_HOST`: bind host, default `127.0.0.1`
+- `MCP_PORT`: bind port, default `3000`
+- `MCP_PATH`: MCP HTTP path, default `/mcp`
+- `MCP_LOG_LEVEL`: log level, default `info`
 
-容器部署通常应设置：
+For containers, prefer:
 
 ```bash
 MCP_HOST=0.0.0.0
 ```
 
-## MCP HTTP 契约
+## MCP HTTP Contract
 
-- 默认 MCP endpoint：`http://127.0.0.1:3000/mcp`
-- 健康检查：`GET /health` 返回 `200 {"status":"ok"}`
-- MCP 服务为无状态实现，不返回也不要求 `MCP-Session-Id`
-- 当前实现使用单一 `POST /mcp` 处理 JSON-RPC 请求
-- 已启用 CORS，便于浏览器 MCP 客户端调用
+- Default MCP endpoint: `http://127.0.0.1:3000/mcp`
+- Health check: `GET /health` returns `200 {"status":"ok"}`
+- The MCP endpoint is stateless and does not require `MCP-Session-Id`
+- The current implementation accepts JSON-RPC requests on `POST /mcp`
+- CORS is enabled for browser MCP clients
 
-最小初始化请求：
+Minimal initialize request:
 
 ```bash
 curl -X POST http://127.0.0.1:3000/mcp \
@@ -106,13 +108,13 @@ curl -X POST http://127.0.0.1:3000/mcp \
 
 ## Docker
 
-构建镜像：
+Build the image:
 
 ```bash
 docker build -t arxiv-paper-mcp-http .
 ```
 
-运行容器：
+Run the container:
 
 ```bash
 docker run -d \
@@ -125,7 +127,7 @@ docker run -d \
   arxiv-paper-mcp-http
 ```
 
-Compose：
+Compose:
 
 ```bash
 docker compose config
@@ -134,26 +136,26 @@ docker compose ps
 docker compose logs -f
 ```
 
-## 部署前检查
+## Pre-Deployment Checks
 
-至少确认：
+At minimum, confirm:
 
-1. 运行环境能访问 `arxiv.org`
-2. 运行环境有可写临时目录，供 PDF fallback 下载与清理
-3. 已执行 `uv run pytest`
-4. 若改了容器链路，已执行 `docker compose config`
+1. The runtime environment can reach `arxiv.org`
+2. Writable temporary storage is available for PDF fallback download and cleanup
+3. `uv run pytest` has been executed
+4. `docker compose config` has been executed if container wiring changed
 
-## 项目结构
+## Project Layout
 
 ```text
 .
 ├── src/arxiv_paper_mcp_http/
-│   ├── __main__.py      # 进程入口
-│   ├── app.py           # FastAPI 应用与 lifespan
-│   ├── config.py        # MCP_HOST/MCP_PORT/MCP_PATH 解析
-│   ├── logger.py        # MCP_LOG_LEVEL 日志配置
-│   ├── mcp_server.py    # MCP 工具注册
-│   └── service.py       # arXiv HTTP、HTML、PDF 处理
+│   ├── __main__.py
+│   ├── app.py
+│   ├── config.py
+│   ├── logger.py
+│   ├── mcp_server.py
+│   └── service.py
 ├── tests/
 │   ├── http_test_harness.py
 │   ├── test_http_transport.py
@@ -166,33 +168,31 @@ docker compose logs -f
 └── AGENTS.md
 ```
 
-## 使用流程示例
+## Typical Flow
 
-1. 用 `search_arxiv` 搜索相关论文
-2. 用 `get_recent_ai_papers` 查看 `cs.AI` 最新列表
-3. 用 `get_arxiv_pdf_url` 生成 PDF 下载链接
-4. 用 `parse_paper_content` 提取论文正文内容
+1. Use `search_arxiv` to find relevant papers
+2. Use `get_recent_ai_papers` to inspect the latest `cs.AI` listing
+3. Use `get_arxiv_pdf_url` to generate a PDF URL
+4. Use `parse_paper_content` to extract the paper body text
 
-## 故障排除
+## Troubleshooting
 
-### 常见问题
+1. Search fails
+   Check network connectivity and verify the keywords or arXiv query expression.
+2. PDF parsing fails
+   Check that the arXiv ID is valid and that writable temporary storage exists.
+3. Logs are not detailed enough
+   Restart with `MCP_LOG_LEVEL=debug uv run python -m arxiv_paper_mcp_http`.
 
-1. 论文搜索失败
-   检查网络连接，并确认搜索关键词或 arXiv 查询表达式有效。
-2. PDF 解析失败
-   检查 arXiv ID 是否正确，并确认运行环境存在可写临时目录。
-3. 本地调试日志不足
-   使用 `MCP_LOG_LEVEL=debug uv run python -m arxiv_paper_mcp_http` 重新启动服务。
+## Contributing
 
-## 贡献
+1. Fork the repository
+2. Create a branch: `git checkout -b feature/your-change`
+3. Install dependencies: `uv venv --python 3.12 && uv sync --extra dev`
+4. Run tests: `uv run pytest`
+5. Commit and push your branch
+6. Open a Pull Request
 
-1. Fork 本项目
-2. 创建分支：`git checkout -b feature/your-change`
-3. 安装依赖：`uv venv --python 3.12 && uv pip install -e ".[dev]"`
-4. 运行测试：`uv run pytest`
-5. 提交并推送分支
-6. 创建 Pull Request
+## License
 
-## 许可证
-
-本项目采用 MIT 许可证，详见 [LICENSE](LICENSE)。
+This project is licensed under MIT. See [LICENSE](LICENSE).

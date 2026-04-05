@@ -81,7 +81,7 @@ async def test_parse_paper_content_prefers_html() -> None:
     service = ArxivService(http_client=create_mock_client(handler))
     result = await service.parse_paper_content("2403.15137v1")
     assert result.source == "html"
-    assert result.content.startswith("=== 论文内容 (来源: HTML) ===")
+    assert result.content.startswith("=== Paper Content (Source: HTML) ===")
     assert "This is enough content" in result.content
     await service.close()
 
@@ -109,5 +109,5 @@ async def test_parse_paper_content_falls_back_to_pdf_path_when_html_is_missing(m
 
     result = await service.parse_paper_content("2403.15137v1")
     assert result.source == "pdf"
-    assert result.content.startswith("=== 论文内容 (来源: PDF) ===")
+    assert result.content.startswith("=== Paper Content (Source: PDF) ===")
     await service.close()
