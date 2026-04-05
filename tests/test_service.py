@@ -41,6 +41,7 @@ def create_mock_client(handler) -> httpx.AsyncClient:
 async def test_search_arxiv_papers_parses_atom_feed() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/query"
+        assert request.url.params["search_query"] == "all:test query"
         return httpx.Response(200, text=SEARCH_XML)
 
     service = ArxivService(http_client=create_mock_client(handler))
@@ -53,6 +54,21 @@ async def test_search_arxiv_papers_parses_atom_feed() -> None:
     assert paper.summary == "Test summary text"
     assert paper.authors == ["Alice", "Bob"]
     await service.close()
+
+
+def test_build_search_query_keeps_advanced_arxiv_expression_intact() -> None:
+    service = ArxivService()
+    advanced_query = (
+        "all:(neural network output constraints equality inequality hard constraints "
+        "feasible output layer projection differentiable optimization) "
+        "AND submittedDate:[202401010000 TO 202612312359]"
+    )
+    assert service.build_search_query(advanced_query) == advanced_query
+
+
+def test_build_search_query_adds_default_all_prefix_for_plain_keywords() -> None:
+    service = ArxivService()
+    assert service.build_search_query("neural network constraints") == "all:neural network constraints"
 
 
 @pytest.mark.asyncio

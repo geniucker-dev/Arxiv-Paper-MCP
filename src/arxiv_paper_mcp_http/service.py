@@ -22,6 +22,8 @@ ARXIV_RECENT_AI_URL = "https://arxiv.org/list/cs.AI/recent"
 USER_AGENT = "ArXiv-Paper-MCP/2.0 (+https://github.com/yzfly/arxiv-paper-mcp)"
 
 ATOM_NAMESPACE = {"atom": "http://www.w3.org/2005/Atom", "opensearch": "http://a9.com/-/spec/opensearch/1.1/"}
+ARXIV_FIELD_PREFIX_PATTERN = re.compile(r"\b(?:ti|au|abs|co|jr|cat|rn|id|all|submittedDate):")
+ARXIV_BOOLEAN_OPERATOR_PATTERN = re.compile(r"\b(?:AND|OR|ANDNOT)\b")
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,12 +76,28 @@ class ArxivService:
             raise RuntimeError("HTTP client is not initialized")
         return self._http_client
 
+    def build_search_query(self, query: str) -> str:
+        normalized_query = _clean_text(query)
+        if not normalized_query:
+            raise RuntimeError("搜索关键词不能为空")
+
+        if ARXIV_FIELD_PREFIX_PATTERN.search(normalized_query):
+            return normalized_query
+
+        if ARXIV_BOOLEAN_OPERATOR_PATTERN.search(normalized_query):
+            return normalized_query
+
+        if any(token in normalized_query for token in ("(", ")", "[", "]", '"')):
+            return normalized_query
+
+        return f"all:{normalized_query}"
+
     async def search_arxiv_papers(self, query: str, max_results: int = 5) -> SearchResponse:
         try:
             response = await self.http_client.get(
                 ARXIV_API_URL,
                 params={
-                    "search_query": f"all:{query}",
+                    "search_query": self.build_search_query(query),
                     "start": 0,
                     "max_results": max_results,
                 },
